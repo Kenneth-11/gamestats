@@ -1,0 +1,99 @@
+name: GameStats CI/CD
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-test-go:
+    name: Build and test Go
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gamestats/go-service
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Lint Go
+        run: go vet ./...
+
+      - name: Build Go
+        run: go build ./...
+
+      - name: Test Go
+        run: go test ./...
+
+      - name: Race detection tests
+        run: go test -race ./...
+
+  build-test-scala:
+    name: Build and test Scala
+    runs-on: ubuntu-latest
+    needs: build-test-go
+    defaults:
+      run:
+        working-directory: gamestats/scala-service
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Scala compile
+        run: sbt compile
+
+      - name: Scala test
+        run: sbt test
+
+      - name: Scala assembly
+        run: sbt assembly
+
+  docker-validate:
+    name: Validate Docker configuration
+    runs-on: ubuntu-latest
+    needs: build-test-scala
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose
+        run: docker compose -f gamestats/docker-compose.yml config
+
+      - name: Build images
+        run: docker compose -f gamestats/docker-compose.yml build
+
+  documentation:
+    name: Check documentation exists
+    runs-on: ubuntu-latest
+    needs: docker-validate
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify docs exist
+        run: |
+          ls gamestats/docs/*.md
+          ls gamestats/.github/workflows/*.yml
+          ls gamestats/.dockerignore
+          ls gamestats/.env.example
+          ls gamestats/.gitignore
+          ls gamestats/docker-compose.yml
+          ls gamestats/README.md

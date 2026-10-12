@@ -1,0 +1,42 @@
+services:
+  gamestats-scala:
+    build:
+      context: ./scala-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - SCALA_SERVICE_PORT=8081
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  gamestats-go:
+    build:
+      context: ./go-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - GO_SERVICE_PORT=8080
+      - SCALA_SERVICE_URL=http://gamestats-scala:8081
+    depends_on:
+      gamestats-scala:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  simulador:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/app/data
+    command: ["./simulator", "${SIMULATOR_SEED:-42}"]

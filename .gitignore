@@ -1,0 +1,11 @@
+# Binarios y artefactos locales
+*.exe
+gamestats-go
+simulator/simulator
+*.log
+*.tmp
+.env
+.DS_Store
+# Build outputs
+target/
+go-service/main
