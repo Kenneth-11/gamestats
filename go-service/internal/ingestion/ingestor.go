@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"os"
@@ -123,14 +124,16 @@ func ParseBodyFlexible(body []byte) ([]*domain.Event, int) {
 	return events, rejected
 }
 
-// Ingestor procesa eventos entrantes con workers concurrentes
+// Ingestor procesa eventos entrantes con workers concurrentes.
+// Los eventos se rutean por matchId (hash) al mismo worker para preservar
+// el orden dentro de cada partida; partidas distintas van en paralelo.
 type Ingestor struct {
 	validator       *validation.Validator
 	matchStore      map[string]*domain.MatchState
 	mutex           sync.RWMutex
 	analyticsURL    string
 	client          *AnalyticsClient
-	eventsChan      chan *domain.Event
+	workers         []chan *domain.Event
 	wg              sync.WaitGroup
 	processedEvents map[string]bool
 	procLock        sync.Mutex
@@ -148,11 +151,17 @@ func NewIngestor(analyticsPort, analyticsURL string) *Ingestor {
 		validator:       validation.NewValidator(),
 		matchStore:      make(map[string]*domain.MatchState),
 		analyticsURL:    strings.TrimSuffix(analyticsURL, "/"),
-		eventsChan:      make(chan *domain.Event, 1000),
 		processedEvents: make(map[string]bool),
 	}
 	i.client = NewAnalyticsClient(i.analyticsURL)
 	return i
+}
+
+// route elige el worker por hash del matchId (orden por partida, paralelo entre partidas)
+func (i *Ingestor) route(matchID string) chan *domain.Event {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(matchID))
+	return i.workers[int(h.Sum32()%uint32(len(i.workers)))]
 }
 
 // Start inicia los workers
@@ -160,15 +169,20 @@ func (i *Ingestor) Start(workerCount int) {
 	if workerCount < 1 {
 		workerCount = 1
 	}
+	i.workers = make([]chan *domain.Event, workerCount)
 	for w := 0; w < workerCount; w++ {
+		ch := make(chan *domain.Event, 1000)
+		i.workers[w] = ch
 		i.wg.Add(1)
-		go i.worker()
+		go i.worker(ch)
 	}
 }
 
 // Stop detiene el ingestor
 func (i *Ingestor) Stop() {
-	close(i.eventsChan)
+	for _, ch := range i.workers {
+		close(ch)
+	}
 	i.wg.Wait()
 }
 
@@ -200,7 +214,7 @@ func (i *Ingestor) ProcessEvent(event *domain.Event) error {
 	i.procLock.Unlock()
 
 	select {
-	case i.eventsChan <- event:
+	case i.route(event.MatchID) <- event:
 		return nil
 	case <-time.After(5 * time.Second):
 		return fmt.Errorf("timeout encolando evento")
@@ -255,9 +269,9 @@ func (i *Ingestor) processSingleEvent(event *domain.Event) error {
 	return nil
 }
 
-func (i *Ingestor) worker() {
+func (i *Ingestor) worker(ch chan *domain.Event) {
 	defer i.wg.Done()
-	for event := range i.eventsChan {
+	for event := range ch {
 		_ = i.processSingleEvent(event)
 	}
 }

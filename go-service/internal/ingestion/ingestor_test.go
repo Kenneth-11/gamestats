@@ -151,8 +151,7 @@ func TestAnalyticsClientReintentosFallan(t *testing.T) {
 	}
 }
 
-func TestParseBodyFlexible(t *testing.T) {
-	arr := `[{"eventId":"e1","timestamp":"2026-03-15T14:00:00Z","gameId":"racing","gameVersion":"1.0.0","matchId":"m1","playerId":"p1","type":"LAP_COMPLETED","action":"","data":{"lapNumber":1,"lapTimeMs":1000,"averageSpeed":150,"position":1}}]`
+func TestParseBodyFlexible(t *testing.T) {	arr := `[{"eventId":"e1","timestamp":"2026-03-15T14:00:00Z","gameId":"racing","gameVersion":"1.0.0","matchId":"m1","playerId":"p1","type":"LAP_COMPLETED","action":"","data":{"lapNumber":1,"lapTimeMs":1000,"averageSpeed":150,"position":1}}]`
 	evs, rej := ParseBodyFlexible([]byte(arr))
 	if len(evs) != 1 || rej != 0 {
 		t.Fatalf("arreglo JSON: evs=%d rej=%d", len(evs), rej)
@@ -161,5 +160,28 @@ func TestParseBodyFlexible(t *testing.T) {
 	evs, rej = ParseBodyFlexible([]byte(single))
 	if len(evs) != 1 || rej != 0 {
 		t.Fatalf("objeto JSON: evs=%d rej=%d", len(evs), rej)
+	}
+}
+
+func TestOrdenPorPartidaPreservado(t *testing.T) {
+	ing := NewIngestor("", "")
+	ing.Start(4) // varios workers: la misma partida debe mantener el orden
+	defer ing.Stop()
+
+	for i := 1; i <= 10; i++ {
+		if err := ing.ProcessEvent(mkLap(fmt.Sprintf("o-%d", i), "mo", "p1", i, 1000+i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, func() bool {
+		m, ok := ing.GetMatch("mo")
+		return ok && len(m.Events) == 10
+	}, "eventos no llegaron")
+	m, _ := ing.GetMatch("mo")
+	for i, ev := range m.Events {
+		want := fmt.Sprintf("o-%d", i+1)
+		if ev.EventID != want {
+			t.Fatalf("orden roto en pos %d: %s, queria %s", i, ev.EventID, want)
+		}
 	}
 }
