@@ -34,7 +34,7 @@ Fuente Simulada → Go (Ingestión y Coordinación) → HTTP/REST → Scala (An�
 
 - Los mapas mutables NO se comparten entre goroutines sin sincronización
 - Cada goroutine tiene su propio estado de partida o usa mutex para acceso compartido
-- Límite razonable de procesamiento concurrente (configurable, default: 10 partidas paralelas)
+- Límite razonable de procesamiento concurrente (configurable con `WORKER_COUNT`, default: 4)
 - Cierre ordenado: pending eventos deben procesarse antes de apagar
 
 ## Módulo Scala

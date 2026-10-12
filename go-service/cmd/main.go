@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"gamestats/go-service/internal/api"
 	"gamestats/go-service/internal/ingestion"
@@ -21,6 +22,11 @@ func main() {
 	port := getenv("GO_SERVICE_PORT", "8080")
 	scalaURL := getenv("SCALA_SERVICE_URL", "http://localhost:8081")
 	workers := 4
+	if v := os.Getenv("WORKER_COUNT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= 64 {
+			workers = n
+		}
+	}
 
 	ing := ingestion.NewIngestor("", scalaURL)
 	ing.Start(workers)

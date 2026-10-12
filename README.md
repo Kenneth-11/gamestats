@@ -104,7 +104,11 @@ cd gamestats/simulator
 ./simulator 42
 ```
 
-Esto generará eventos de ejemplo en la carpeta `data/`.
+Esto generará eventos de ejemplo en la carpeta `data/`: 3 partidas de
+carreras + 1 guionada (`carreras_all.jsonl`, 4 partidas) y 2 de combate +
+1 guionada (`combate_all.jsonl`, 3 partidas). Los archivos `*_small.jsonl`
+contienen una partida cada uno. La salida es determinista con la misma
+semilla. Ver `docs/deployment.md` para el deployment integrado.
 
 ### Cargar eventos al servicio Go
 ```
@@ -417,6 +421,12 @@ gamestats/
 ├── simulator/            # Simulador de eventos
 │   └── src/
 ├── docs/                # Documentación
+│   ├── event-schema.md  # Formato de eventos
+│   ├── architecture.md  # Arquitectura Go/Scala
+│   ├── api.md           # Contratos HTTP
+│   ├── decisions.md     # Justificación de diseño
+│   └── deployment.md    # Deployment y verificación
+├── data/                # Datasets JSONL (small + all)
 ├── .github/             # GitHub Actions
 │   └── workflows/
 ├── docker-compose.yml          # Docker Compose
