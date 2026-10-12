@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"time"
 )
 
@@ -58,6 +59,18 @@ func (s *Simulador) GenerarPartesCombate(cantidad int) [][]*Evento {
 	return partes
 }
 
+// clavesOrdenadas devuelve las claves del mapa ordenadas.
+// Evita el orden aleatorio de iteracion de maps de Go para que la
+// salida sea determinista con la misma semilla.
+func clavesOrdenadas(m map[string]bool) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Strings(ks)
+	return ks
+}
+
 // generarPartidaCarrera genera una partida de carreras completa
 func (s *Simulador) generarPartidaCarrera(partID int) []*Evento {
 	eventos := []*Evento{}
@@ -78,12 +91,9 @@ func (s *Simulador) generarPartidaCarrera(partID int) []*Evento {
 
 	// Laps completados - algunos jugadores tienen mejores tiempos
 	posiciones := []int{3, 1, 2, 5, 4}
+	players := clavesOrdenadas(jugadores)
 	for lap := 1; lap <= s.rng.Intn(10)+5; lap++ { // 5-15 vueltas
 		// Seleccionar jugador actual (rotar entre jugadores)
-		players := []string{}
-		for p := range jugadores {
-			players = append(players, p)
-		}
 		if len(players) == 0 {
 			break
 		}
@@ -119,11 +129,7 @@ func (s *Simulador) generarPartidaCarrera(partID int) []*Evento {
 	}
 
 	// EVENT: MATCH_FINISHED
-	ganador := ""
-	for p := range jugadores {
-		ganador = p
-		break
-	}
+	ganador := players[0]
 	eventos = s.agregarEvento(eventos, s.eventoMatchFinished("racing", "v1", "match_racing_"+fmt.Sprintf("%03d", partID), ganador, 3600000))
 
 	s.eventCount += len(eventos)
@@ -150,27 +156,24 @@ func (s *Simulador) generarPartidaCombate(partID int) []*Evento {
 
 	// Ataques y eliminaciones
 	numAtaques := s.rng.Intn(8) + 4 // 4-11 ataques
+	attackers := clavesOrdenadas(jugadores)
 	for a := 0; a < numAtaques; a++ {
 		// Selector de atacante y objetivo
-		attackers := []string{}
-		for p := range jugadores {
-			attackers = append(attackers, p)
-		}
 		if len(attackers) == 0 {
 			break
 		}
 		atacante := attackers[s.rng.Intn(len(attackers))]
 
-		// Objetivo diferente del atacante
-		objetivo := ""
-		for p := range jugadores {
+		// Objetivo diferente del atacante (sorteo determinista entre los demas)
+		otros := []string{}
+		for _, p := range attackers {
 			if p != atacante {
-				objetivo = p
-				break
+				otros = append(otros, p)
 			}
 		}
-		if objetivo == "" {
-			objetivo = atacante // fallback
+		objetivo := atacante // fallback
+		if len(otros) > 0 {
+			objetivo = otros[s.rng.Intn(len(otros))]
 		}
 
 		damage := s.rng.Intn(50) + 20   // 20-70 de daño
@@ -187,11 +190,7 @@ func (s *Simulador) generarPartidaCombate(partID int) []*Evento {
 	}
 
 	// EVENT: MATCH_FINISHED
-	ganador := ""
-	for p := range jugadores {
-		ganador = p
-		break
-	}
+	ganador := attackers[0]
 	eventos = s.agregarEvento(eventos, s.eventoMatchFinished("combat", "v1", "match_combat_"+fmt.Sprintf("%03d", partID), ganador, 1800000))
 
 	s.eventCount += len(eventos)
@@ -354,8 +353,88 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error escribiendo file: %v\n", err)
 	}
 
+	// Casos guionados: garantizan que los patrones se puedan comprobar con datos.
+	// No usan el rng para no alterar la salida determinista anterior.
+	guionRemontada := partidaRemontadaGuionada()
+	guionRacha := partidaRachaGuionada()
+
+	todasCarreras := append(flatten(partesCarreras), guionRemontada...)
+	err = writeJSONLFile("data/carreras_all.jsonl", todasCarreras)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error escribiendo file: %v\n", err)
+	}
+
+	todasCombate := append(flatten(partesCombate), guionRacha...)
+	err = writeJSONLFile("data/combate_all.jsonl", todasCombate)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error escribiendo file: %v\n", err)
+	}
+
 	fmt.Println("=== Eventos guardados en data/ ===")
 	fmt.Println("Para probar: go-run-go-service --ingest-file data/carreras_small.jsonl")
+}
+
+// flatten concatena varias partidas en una sola lista
+func flatten(partes [][]*Evento) []*Evento {
+	out := []*Evento{}
+	for _, p := range partes {
+		out = append(out, p...)
+	}
+	return out
+}
+
+// partidaRemontadaGuionada: caso determinista que dispara el patron remontada.
+// player_hero pasa de posicion 5 a 1 (POSITION_CHANGED 5->3, 3->1) y gana.
+func partidaRemontadaGuionada() []*Evento {
+	mk := func(id, ts, player, tipo string, data interface{}) *Evento {
+		t, _ := time.Parse(time.RFC3339, ts)
+		return &Evento{
+			EventID: id, Timestamp: t, GameID: "racing", GameVersion: "v1",
+			MatchID: "match_racing_900", PlayerID: player, Type: tipo, Action: "", Data: data,
+		}
+	}
+	return []*Evento{
+		mk("evt_script_0001", "2026-03-15T14:00:00Z", "", "MATCH_STARTED", map[string]string{"mode": "lap", "track": "city_circuit"}),
+		mk("evt_script_0002", "2026-03-15T14:01:00Z", "player_hero", "PLAYER_JOINED", map[string]string{"playerName": "player_hero", "team": "red"}),
+		mk("evt_script_0003", "2026-03-15T14:02:00Z", "player_rival", "PLAYER_JOINED", map[string]string{"playerName": "player_rival", "team": "blue"}),
+		mk("evt_script_0004", "2026-03-15T14:10:00Z", "player_hero", "LAP_COMPLETED", map[string]interface{}{"lapNumber": 1, "lapTimeMs": 1200, "averageSpeed": 140, "position": 5}),
+		mk("evt_script_0005", "2026-03-15T14:11:00Z", "player_hero", "POSITION_CHANGED", map[string]interface{}{"fromPosition": 5, "toPosition": 3}),
+		mk("evt_script_0006", "2026-03-15T14:12:00Z", "player_hero", "POSITION_CHANGED", map[string]interface{}{"fromPosition": 3, "toPosition": 1}),
+		mk("evt_script_0007", "2026-03-15T14:13:00Z", "player_hero", "LAP_COMPLETED", map[string]interface{}{"lapNumber": 2, "lapTimeMs": 950, "averageSpeed": 165, "position": 1}),
+		mk("evt_script_0008", "2026-03-15T14:14:00Z", "", "MATCH_FINISHED", map[string]interface{}{"winnerPlayerId": "player_hero", "durationMs": 840000}),
+	}
+}
+
+// partidaRachaGuionada: caso determinista que dispara el patron racha_eliminaciones.
+// player_hero elimina a 3 rivales seguidos sin ser eliminado en el medio.
+func partidaRachaGuionada() []*Evento {
+	mk := func(id, ts, player, tipo string, data interface{}) *Evento {
+		t, _ := time.Parse(time.RFC3339, ts)
+		return &Evento{
+			EventID: id, Timestamp: t, GameID: "combat", GameVersion: "v1",
+			MatchID: "match_combat_900", PlayerID: player, Type: tipo, Action: "", Data: data,
+		}
+	}
+	atk := func(victim string, dmg int) map[string]interface{} {
+		return map[string]interface{}{"attacker": "player_hero", "target": victim, "damage": dmg, "weapon": "rifle", "distance": 30}
+	}
+	elim := func(victim string) map[string]interface{} {
+		return map[string]interface{}{"victim": victim, "killer": "player_hero", "weapon": "rifle", "distance": 30}
+	}
+	return []*Evento{
+		mk("evt_script_0101", "2026-03-15T16:00:00Z", "", "MATCH_STARTED", map[string]string{"mode": "deathmatch", "map": "arena"}),
+		mk("evt_script_0102", "2026-03-15T16:01:00Z", "player_hero", "PLAYER_JOINED", map[string]string{"playerName": "player_hero", "team": "red"}),
+		mk("evt_script_0103", "2026-03-15T16:01:10Z", "enemy1", "PLAYER_JOINED", map[string]string{"playerName": "enemy1", "team": "blue"}),
+		mk("evt_script_0104", "2026-03-15T16:01:20Z", "enemy2", "PLAYER_JOINED", map[string]string{"playerName": "enemy2", "team": "blue"}),
+		mk("evt_script_0105", "2026-03-15T16:01:30Z", "enemy3", "PLAYER_JOINED", map[string]string{"playerName": "enemy3", "team": "blue"}),
+		mk("evt_script_0106", "2026-03-15T16:02:00Z", "", "PLAYER_ATTACKED", atk("enemy1", 60)),
+		mk("evt_script_0107", "2026-03-15T16:02:10Z", "", "PLAYER_ELIMINATED", elim("enemy1")),
+		mk("evt_script_0108", "2026-03-15T16:03:00Z", "", "PLAYER_ATTACKED", atk("enemy2", 55)),
+		mk("evt_script_0109", "2026-03-15T16:03:10Z", "", "PLAYER_ELIMINATED", elim("enemy2")),
+		mk("evt_script_0110", "2026-03-15T16:04:00Z", "", "PLAYER_ATTACKED", atk("enemy3", 70)),
+		mk("evt_script_0111", "2026-03-15T16:04:10Z", "", "PLAYER_ELIMINATED", elim("enemy3")),
+		mk("evt_script_0112", "2026-03-15T16:05:00Z", "", "MATCH_FINISHED", map[string]interface{}{"winnerPlayerId": "player_hero", "durationMs": 300000, "killsLeader": "player_hero"}),
+	}
 }
 
 func writeJSONLFile(path string, events []*Evento) error {
