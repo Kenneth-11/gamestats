@@ -12,15 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: gamestats/go-service
+        working-directory: go-service
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.5'
+          cache: false
 
       - name: Install dependencies
         run: go mod download
@@ -43,10 +44,10 @@ jobs:
     needs: build-test-go
     defaults:
       run:
-        working-directory: gamestats/scala-service
+        working-directory: scala-service
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -72,13 +73,13 @@ jobs:
     needs: build-test-scala
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Validate Docker Compose
-        run: docker compose -f gamestats/docker-compose.yml config
+        run: docker compose -f docker-compose.yml config
 
       - name: Build images
-        run: docker compose -f gamestats/docker-compose.yml build
+        run: docker compose -f docker-compose.yml build
 
   documentation:
     name: Check documentation exists
@@ -86,14 +87,14 @@ jobs:
     needs: docker-validate
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify docs exist
         run: |
-          ls gamestats/docs/*.md
-          ls gamestats/.github/workflows/*.yml
-          ls gamestats/.dockerignore
-          ls gamestats/.env.example
-          ls gamestats/.gitignore
-          ls gamestats/docker-compose.yml
-          ls gamestats/README.md
+          ls docs/*.md
+          ls .github/workflows/*.yml
+          ls .dockerignore
+          ls .env.example
+          ls .gitignore
+          ls docker-compose.yml
+          ls README.md
